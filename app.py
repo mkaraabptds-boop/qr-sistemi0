@@ -1,7 +1,6 @@
 import streamlit as st
 import cv2
 import numpy as np
-import zxingcpp
 from PIL import Image
 import pandas as pd
 from datetime import datetime
@@ -24,7 +23,7 @@ st.markdown("""
 
 st.title("🔳 ABP TDS - QR İş Emri Terminali")
 
-# --- AYARLAR (SADELEŞTİRİLDİ) ---
+# --- AYARLAR ---
 if not st.session_state.kamera_acik:
     if st.button("🔵 QR TARAYICIYI AÇ"):
         st.session_state.kamera_acik = True
@@ -34,21 +33,17 @@ else:
         st.session_state.kamera_acik = False
         st.rerun()
 
-# --- GÜÇLENDİRİLMİŞ QR OKUMA MOTORU ---
+# --- STANDART OPENCV QR MOTORU (Hata Vermez) ---
 def qr_coz(img_file):
-    img = Image.open(img_file)
-    img_array = np.array(img)
-    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+    opencv_img = cv2.imdecode(file_bytes, 1)
     
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    denoised = cv2.medianBlur(gray, 3)
-
-    targets = [gray, binary, denoised]
+    # OpenCV'nin dahili QR dedektörü
+    detector = cv2.QRCodeDetector()
+    data, bbox, _ = detector.detectAndDecode(opencv_img)
     
-    for target in targets:
-        found = zxingcpp.read_barcodes(target, formats=[zxingcpp.BarcodeFormat.QRCode])
-        if found:
-            return found[0].text.strip()
+    if data:
+        return data.strip()
     return None
 
 # --- AKIŞ ---
@@ -66,16 +61,14 @@ if st.session_state.kamera_acik:
                 </div>
             """, unsafe_allow_html=True)
             
-            # Kaydet butonu artık operasyon bilgisi istemeden direkt kaydediyor
             if st.button(f"📥 {kod} Kodunu Listeye Kaydet"):
                 st.session_state.kayitlar.append({
                     "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "İş Emri No": kod
                 })
                 st.toast("Kayıt Başarılı!", icon="🚀")
-                st.balloons()
         else:
-            st.error("QR Kod okunamadı. Lütfen mesafeyi ayarlayın.")
+            st.warning("QR Kod okunamadı. Lütfen ışığı ve mesafeyi ayarlayın.")
 
 # --- RAPORLAMA ---
 if st.session_state.kayitlar:
@@ -85,12 +78,3 @@ if st.session_state.kayitlar:
     
     csv = df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
     st.download_button("📥 Günlük Veriyi Excel'e Aktar", data=csv, file_name="ABP_QR_Rapor.csv")
-
-    with st.expander("🔐 Yetkili Paneli"):
-        pass_input = st.text_input("Sıfırlama Şifresi:", type="password")
-        if st.button("🗑️ TÜM VERİYİ SİL"):
-            if pass_input == "abp2026":
-                st.session_state.kayitlar = []
-                st.rerun()
-            else:
-                st.error("Yetkisiz Giriş!")
